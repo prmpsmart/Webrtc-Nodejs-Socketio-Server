@@ -20,7 +20,11 @@ io.on('connection', socket => {
 
     console.log(socket.id + ' connected');
 
+    const roomID;
+
     socket.on('join-room', roomID => {
+        console.log(socket.id + " joined the " + roomID);
+        roomID = roomID;
         if (rooms[roomID]) {
             rooms[roomID].push(socket.id);
         } else {
@@ -35,24 +39,32 @@ io.on('connection', socket => {
     });
 
     socket.on('offer', sdp => {
+        console.log(socket.id + " offer sdp " + roomID);
+        room[roomID]["offer_sdp"] = sdp;
         const otherUser = rooms[roomID].find(id => id !== socket.id);
-        io.to(otherUser).emit('offer', payload);
+        io.to(otherUser).emit('offer', sdp);
     });
 
     // listen for the answer event
     socket.on('answer', sdp => {
+        console.log(socket.id + " answer sdp " + roomID);
+        room[roomID]["answer_sdp"] = sdp;
         const otherUser = rooms[roomID].find(id => id !== socket.id);
         io.to(otherUser).emit('answer', sdp);
     });
 
-    socket.on('caller-ice-candidate', incoming => {
+    socket.on('caller-ice-candidate', candidate => {
+        console.log(socket.id + " caller candidate " + roomID);
+        room[roomID]["caller_candidate"] = candidate;
         const otherUser = rooms[roomID].find(id => id !== socket.id);
-        io.to(otherUser).emit('caller-ice-candidate', incoming.candidate);
+        io.to(otherUser).emit('caller-ice-candidate', candidate);
     });
 
-    socket.on('callee-ice-candidate', incoming => {
+    socket.on('calle-ice-candidate', candidate => {
+        console.log(socket.id + " calle candidate " + roomID);
+        room[roomID]["calle_candidate"] = candidate;
         const otherUser = rooms[roomID].find(id => id !== socket.id);
-        io.to(otherUser).emit('callee-ice-candidate', incoming.candidate);
+        io.to(otherUser).emit('calle-ice-candidate', candidate);
     });
 
     socket.on('disconnect', () => {
