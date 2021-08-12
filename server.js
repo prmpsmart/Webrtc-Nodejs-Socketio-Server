@@ -9,13 +9,12 @@ const server = http.createServer(app);
 
 const io = socketio(server);
 
-const users = [];
+let users = [];
 
 app.get('/', (req, res) => {
     res.send("Server running");
 });
 
-// run when client connects
 io.on('connection', socket => {
 
     console.log(socket.id + ' connected');
@@ -23,29 +22,33 @@ io.on('connection', socket => {
         users.push(userData);
         socket.userId = userData["id"];
         socket.join(userData["id"]);
-
-        // socket.emit("users", users.filter(
-        //     user => user["id"] !== socket.userId
-        // ));
-
-        // io.emit("users", [user]);
         io.emit('users', users);
     });
 
     socket.on('call-user', data => {
-        console.log(data);
+        console.log("Call User --> from:" + data["from"] + "   to:" + data["to"]);
         /// SDP
         /// TO
-        /// FROm
+        /// FROM
         io.to(data.to).emit('call-made', data);
     });
 
     socket.on('make-answer', data => {
-        console.log(data);
+        console.log("Make Answer --> from:" + data["from"] + "   to:" + data["to"]);
         /// SDP
         /// TO
-        /// FROm
+        /// FROM
         io.to(data.to).emit('answer-made', data);
+    });
+
+    socket.on('ice-candidate', data => {
+        console.log("Ice Candidate --> from:" + data["from"] + "   to:" + data["to"]);
+        /// CANDIDATE
+        /// SDPMID
+        /// SDPMLINEINDEX
+        /// TO
+        /// FROM
+        io.to(data.to).emit('ice-candidate', data);
     });
 
     socket.on('disconnect', () => {
