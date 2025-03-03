@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebRTC Socket.IO Client</title>
+    <script src="https://cdn.socket.io/4.1.3/socket.io.min.js"></script>
+    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f7f6;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        flex-direction: column;
+      }
+
+      h1 {
+        font-size: 2.5rem;
+        color: #4a90e2;
+        margin-bottom: 20px;
+      }
+
+      #localVideo,
+      #remoteVideo {
+        border: 2px solid #ddd;
+        width: 60%;
+        max-width: 600px;
+        background-color: #000;
+        margin: 10px;
+        display: block;
+        border-radius: 8px;
+      }
+
+      .button-container {
+        display: flex;
+        justify-content: center;
+        margin-top: 20px;
+      }
+
+      button {
+        padding: 10px 20px;
+        margin: 0 10px;
+        font-size: 1rem;
+        cursor: pointer;
+        border: none;
+        border-radius: 5px;
+        background-color: #4a90e2;
+        color: white;
+        transition: background-color 0.3s ease;
+      }
+
+      button:disabled {
+        background-color: #ddd;
+        cursor: not-allowed;
+      }
+
+      button:hover:not(:disabled) {
+        background-color: #357ab7;
+      }
+
+      .controls {
+        margin-top: 20px;
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+      }
+
+      .controls button {
+        background-color: #ff6f61;
+      }
+
+      .controls button:hover:not(:disabled) {
+        background-color: #e04b3b;
+      }
+
+      .status {
+        margin-top: 10px;
+        font-size: 1.1rem;
+        color: #333;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WebRTC Call</h1>
+
+    <div>
+      <video id="localVideo" autoplay muted></video>
+      <video id="remoteVideo" autoplay></video>
+    </div>
+
+    <div class="button-container">
+      <button id="callButton">Call</button>
+      <button id="hangupButton" disabled>Hangup</button>
+    </div>
+
+    <div class="controls">
+      <button id="muteButton">Mute</button>
+      <button id="switchCameraButton">Switch Camera</button>
+    </div>
+
+    <div id="status" class="status"></div>
+
+    <script>
+      const socket = io("http://localhost:3000"); // Replace with your server URL
+      let localStream;
+      let remoteStream;
+      let peerConnection;
+      let isMuted = false;
+      let isFrontCamera = true; // Default to front camera
+      const user = {
+        username: "rockymiracy",
+        name: "Miracy",
+        surname: "Rocky",
+      };
+      const user2 = {
+        username: "prmpsmart",
+        name: "Miracle",
+        surname: "Apata",
+      };
+
+      const localVideo = document.getElementById("localVideo");
+      const remoteVideo = document.getElementById("remoteVideo");
+      const statusDiv = document.getElementById("status");
+
+      // Call and hangup button actions
+      document.getElementById("callButton").onclick = () => callUser();
+      document.getElementById("hangupButton").onclick = () => hangupCall();
+      document.getElementById("muteButton").onclick = () => muteMicrophone();
+      document.getElementById("switchCameraButton").onclick = () =>
+        switchCamera();
+
+      socket.on("connect", () => {
+        console.log("Connected to Socket.IO server");
+        socket.emit("connectUser", user);
+      });
+
+      socket.on("user-registered", (data) => {
+        console.log("User registered:", data);
+      });
+
+      socket.on("users", (users) => {
+        console.log("Online users:", users);
+      });
+
+      socket.on("call-made", (data) => {
+        console.log("Incoming call:", data);
+        if (confirm("Do you want to answer the call?")) {
+          answerCall(data);
+        }
+      });
+
+      socket.on("answer-made", (data) => {
+        console.log("Call answered:", data);
+        handleAnswer(data);
+      });
+
+      socket.on("ice-candidate", (data) => {
+        console.log("Received ICE candidate:", data);
+        if (peerConnection) {
+          peerConnection.addIceCandidate(new RTCIceCandidate(data));
+        }
+      });
+
+      socket.on("hangup", (data) => {
+        console.log("Call hangup:", data);
+        hangupCall();
+      });
+
+      socket.on("busy", (data) => {
+        console.log("User is busy:", data);
+        alert("User is busy");
+      });
+
+      // Set up WebRTC and get local stream
+      async function setupLocalStream() {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true,
+          });
+          localVideo.srcObject = stream;
+          localStream = stream;
+        } catch (err) {
+          console.error("Error accessing media devices.", err);
+        }
+      }
+
+      // Create peer connection and initiate call
+      async function callUser() {
+        await setupLocalStream();
+
+        peerConnection = new RTCPeerConnection({
+          iceServers: [
+            { urls: "stun:stun1.l.google.com:19302" },
+            { urls: "stun:stun2.l.google.com:19302" },
+          ],
+        });
+
+        peerConnection.onicecandidate = handleICECandidate;
+        peerConnection.ontrack = handleRemoteTrack;
+
+        localStream.getTracks().forEach((track) => {
+          peerConnection.addTrack(track, localStream);
+        });
+
+        // Create an offer
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+
+        // Send the offer to the server
+        const callData = {
+          from: user,
+          to: user2,
+          sdp: offer,
+        };
+        socket.emit("call-user", callData);
+
+        // Enable hangup button
+        document.getElementById("hangupButton").disabled = false;
+        updateStatus("Calling...");
+      }
+
+      // Answer the incoming call
+      async function answerCall(data) {
+        await setupLocalStream();
+
+        peerConnection = new RTCPeerConnection({
+          iceServers: [
+            { urls: "stun:stun1.l.google.com:19302" },
+            { urls: "stun:stun2.l.google.com:19302" },
+          ],
+        });
+
+        peerConnection.onicecandidate = handleICECandidate;
+        peerConnection.ontrack = handleRemoteTrack;
+
+        localStream.getTracks().forEach((track) => {
+          peerConnection.addTrack(track, localStream);
+        });
+
+        // Set remote description and create answer
+        await peerConnection.setRemoteDescription(
+          new RTCSessionDescription(data.sdp)
+        );
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+
+        // Send the answer to the server
+        const answerData = {
+          from: user,
+          to: data.from,
+          sdp: answer,
+        };
+        socket.emit("make-answer", answerData);
+
+        // Enable hangup button
+        document.getElementById("hangupButton").disabled = false;
+        updateStatus("In Call...");
+      }
+
+      // Handle ICE candidates
+      function handleICECandidate(event) {
+        if (event.candidate) {
+          const candidateData = {
+            from: user,
+            to: user2,
+            candidate: event.candidate.candidate,
+            sdpMid: event.candidate.sdpMid,
+            sdpMlineIndex: event.candidate.sdpMLineIndex,
+          };
+          socket.emit("ice-candidate", candidateData);
+        }
+      }
+
+      // Handle remote stream
+      function handleRemoteTrack(event) {
+        remoteStream = event.streams[0];
+        remoteVideo.srcObject = remoteStream;
+      }
+
+      // Hang up the call
+      function hangupCall() {
+        if (peerConnection) {
+          peerConnection.close();
+          peerConnection = null;
+        }
+        document.getElementById("hangupButton").disabled = true;
+        updateStatus("Call Ended");
+      }
+
+      // Mute or unmute the microphone
+      function muteMicrophone() {
+        const audioTrack = localStream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = !audioTrack.enabled;
+          isMuted = !isMuted;
+        }
+      }
+
+      // Switch between front and rear cameras
+      async function switchCamera() {
+        const videoTrack = localStream.getVideoTracks()[0];
+        const currentDeviceId = videoTrack.getSettings().deviceId;
+
+        // Get available video devices
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(
+          (device) => device.kind === "videoinput"
+        );
+
+        // Switch to the other camera
+        const newDevice = videoDevices.find(
+          (device) => device.deviceId !== currentDeviceId
+        );
+        if (newDevice) {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: newDevice.deviceId },
+            audio: true,
+          });
+
+          const newVideoTrack = stream.getVideoTracks()[0];
+          localStream.removeTrack(videoTrack);
+          localStream.addTrack(newVideoTrack);
+
+          localVideo.srcObject = localStream;
+          isFrontCamera = !isFrontCamera;
+        }
+      }
+
+      // Update status message
+      function updateStatus(message) {
+        statusDiv.textContent = message;
+      }
+    </script>
+  </body>
+</html>
